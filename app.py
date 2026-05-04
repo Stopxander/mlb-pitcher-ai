@@ -3,38 +3,40 @@ import requests
 
 st.set_page_config(layout="wide")
 
-st.title("⚾ MLB Pitcher Vulnerability AI")
+st.title("⚾ MLB EDGE FINDER AI")
 
 # -----------------------------
-# MODELO
+# MODELO EDGE
 # -----------------------------
 
-def calculate_scores(hr9, barrel, woba, iso, park, sharp):
+def calculate_edge(hr9, barrel, woba, iso, park, sharp):
 
     hr_risk = (
         hr9 * 20 +
         barrel * 1.5 +
         woba * 100 +
         iso * 120 +
-        park * 15 +
-        sharp * 0.3
+        park * 15
     )
 
     hit_risk = (
         woba * 150 +
         iso * 100 +
-        barrel * 1.2 +
-        sharp * 0.4
+        barrel * 1.2
     )
 
-    if hr_risk > 70:
-        label = "🔥 Pitcher Vulnerable"
-    elif hr_risk > 55:
-        label = "⚠️ Riesgo Medio"
-    else:
-        label = "✅ Pitcher Estable"
+    edge_score = hr_risk + sharp * 0.5
 
-    return round(hr_risk,2), round(hit_risk,2), label
+    if edge_score > 95:
+        label = "🔥 TOP EDGE DEL DÍA"
+    elif edge_score > 75:
+        label = "💰 Edge Positivo"
+    elif edge_score > 60:
+        label = "⚠️ Lean"
+    else:
+        label = "❌ Sin Valor"
+
+    return round(hr_risk,2), round(hit_risk,2), round(edge_score,2), label
 
 
 # -----------------------------
@@ -54,6 +56,7 @@ if data["dates"]:
     game_map = {}
 
     for g in games:
+
         away = g["teams"]["away"]["team"]["name"]
         home = g["teams"]["home"]["team"]["name"]
 
@@ -67,19 +70,20 @@ if data["dates"]:
             "home_pitcher": home_pitcher["fullName"] if home_pitcher else "TBD"
         }
 
-    selected_game = st.selectbox("Selecciona juego", list(game_map.keys()))
+    selected_game = st.selectbox("Juego", list(game_map.keys()))
 
     pitchers = [
         f"Visitante — {game_map[selected_game]['away_pitcher']}",
         f"Local — {game_map[selected_game]['home_pitcher']}"
     ]
 
-    selected_pitcher = st.selectbox("Selecciona Pitcher", pitchers)
+    selected_pitcher = st.selectbox("Pitcher", pitchers)
 
     key = selected_game + selected_pitcher
 
     if key not in st.session_state.pitcher_data:
         st.session_state.pitcher_data[key] = {
+            "hand":"R",
             "hr9":1.2,
             "barrel":8.0,
             "woba":0.320,
@@ -94,15 +98,28 @@ if data["dates"]:
 
     col1, col2, col3 = st.columns(3)
 
+    pdata["hand"] = col1.selectbox(
+        "Mano del Pitcher",
+        ["R","L"],
+        index=0 if pdata["hand"]=="R" else 1,
+        key=key+"hand"
+    )
+
     pdata["hr9"] = col1.number_input("HR/9", value=pdata["hr9"], key=key+"hr9")
     pdata["barrel"] = col2.number_input("Barrel %", value=pdata["barrel"], key=key+"barrel")
     pdata["woba"] = col3.number_input("Split wOBA Allowed", value=pdata["woba"], key=key+"woba")
 
-    pdata["iso"] = col1.number_input("Lineup ISO vs Hand", value=pdata["iso"], key=key+"iso")
+    pdata["iso"] = col1.number_input(
+        f"Lineup ISO vs {'RHP' if pdata['hand']=='R' else 'LHP'}",
+        value=pdata["iso"],
+        key=key+"iso"
+    )
+
     pdata["park"] = col2.number_input("Ballpark HR Factor", value=pdata["park"], key=key+"park")
+
     pdata["sharp"] = col3.slider("Sharp Money Index",0,100,pdata["sharp"], key=key+"sharp")
 
-    hr_score, hit_score, label = calculate_scores(
+    hr_score, hit_score, edge_score, label = calculate_edge(
         pdata["hr9"],
         pdata["barrel"],
         pdata["woba"],
@@ -113,15 +130,20 @@ if data["dates"]:
 
     st.divider()
 
-    st.metric("HR Risk Score", hr_score)
-    st.metric("Hit Risk Score", hit_score)
+    c1,c2,c3 = st.columns(3)
 
-    if "Vulnerable" in label:
+    c1.metric("HR Risk", hr_score)
+    c2.metric("Hit Risk", hit_score)
+    c3.metric("EDGE SCORE", edge_score)
+
+    if "TOP EDGE" in label:
         st.error(label)
-    elif "Medio" in label:
+    elif "Positivo" in label:
+        st.success(label)
+    elif "Lean" in label:
         st.warning(label)
     else:
-        st.success(label)
+        st.info(label)
 
 else:
     st.write("No hay juegos hoy.")
