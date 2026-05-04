@@ -3,40 +3,53 @@ import requests
 
 st.set_page_config(layout="wide")
 
-st.title("⚾ MLB EDGE FINDER AI")
+st.title("⚾ MLB EDGE FINDER AI — Sharp Edition")
 
 # ------------------------------------------------
-# MODELO EDGE
+# EDGE MODEL
 # ------------------------------------------------
 
-def calculate_edge(hr9, barrel, woba, iso, park, sharp):
+def calculate_edge(hr9, barrel, woba, iso, park, sharp_index):
 
-    hr_risk = (
-        hr9 * 20 +
-        barrel * 1.5 +
-        woba * 100 +
-        iso * 120 +
-        park * 15
-    )
+    hr_risk = hr9*20 + barrel*1.5 + woba*100 + iso*120 + park*15
+    hit_risk = woba*150 + iso*100 + barrel*1.2
 
-    hit_risk = (
-        woba * 150 +
-        iso * 100 +
-        barrel * 1.2
-    )
+    edge_score = hr_risk + sharp_index*0.6
 
-    edge_score = hr_risk + sharp * 0.5
-
-    if edge_score > 95:
-        label = "🔥 TOP EDGE DEL DÍA"
-    elif edge_score > 75:
-        label = "💰 Edge Positivo"
-    elif edge_score > 60:
-        label = "⚠️ Lean"
+    if edge_score > 110:
+        label = "🔥 ELITE BET"
+    elif edge_score > 90:
+        label = "🔥 TOP EDGE"
+    elif edge_score > 70:
+        label = "💰 EDGE POSITIVO"
     else:
-        label = "❌ Sin Valor"
+        label = "❌ SIN VALOR"
 
     return round(hr_risk,2), round(hit_risk,2), round(edge_score,2), label
+
+
+# ------------------------------------------------
+# SHARP MONEY CALCULATOR
+# ------------------------------------------------
+
+def sharp_money_index(tickets, money):
+
+    diff = money - tickets
+
+    if diff >= 25:
+        signal = "🔥 SHARP MONEY FUERTE"
+        index = 90
+    elif diff >= 15:
+        signal = "💰 SHARP MONEY"
+        index = 75
+    elif diff >= 5:
+        signal = "⚠️ LEAN SHARP"
+        index = 60
+    else:
+        signal = "📊 PUBLIC MONEY"
+        index = 40
+
+    return index, signal
 
 
 # ------------------------------------------------
@@ -47,7 +60,7 @@ if "pitcher_data" not in st.session_state:
     st.session_state.pitcher_data = {}
 
 # ------------------------------------------------
-# OBTENER JUEGOS MLB
+# MLB GAMES
 # ------------------------------------------------
 
 url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
@@ -60,7 +73,6 @@ if data["dates"]:
     game_map = {}
 
     for g in games:
-
         away = g["teams"]["away"]["team"]["name"]
         home = g["teams"]["home"]["team"]["name"]
 
@@ -74,10 +86,6 @@ if data["dates"]:
             "home_pitcher": home_pitcher["fullName"] if home_pitcher else "TBD"
         }
 
-    # -------------------------
-    # SELECTORES
-    # -------------------------
-
     selected_game = st.selectbox("Juego", list(game_map.keys()))
 
     pitchers = [
@@ -85,60 +93,36 @@ if data["dates"]:
         f"Local — {game_map[selected_game]['home_pitcher']}"
     ]
 
-    selected_pitcher = st.selectbox("Pitcher", pitchers)
+    selected_pitcher = st.selectbox("Pitcher Analizado", pitchers)
 
     key = selected_game + selected_pitcher
-
-    # -------------------------
-    # DEFAULT DATA
-    # -------------------------
 
     if key not in st.session_state.pitcher_data:
         st.session_state.pitcher_data[key] = {}
 
     pdata = st.session_state.pitcher_data[key]
 
-    # FIX errores futuros
     pdata.setdefault("hand","R")
     pdata.setdefault("hr9",1.2)
     pdata.setdefault("barrel",8.0)
     pdata.setdefault("woba",0.320)
     pdata.setdefault("iso",0.170)
     pdata.setdefault("park",1.05)
-    pdata.setdefault("sharp",50)
-
-    # ------------------------------------------------
-    # INPUTS
-    # ------------------------------------------------
 
     st.subheader(f"📊 Analizando: {selected_pitcher}")
 
-    col1, col2, col3 = st.columns(3)
+    col1,col2,col3 = st.columns(3)
 
     pdata["hand"] = col1.selectbox(
-        "Mano del Pitcher",
+        "Mano Pitcher",
         ["R","L"],
         index=0 if pdata["hand"]=="R" else 1,
         key=key+"hand"
     )
 
-    pdata["hr9"] = col1.number_input(
-        "HR/9",
-        value=float(pdata["hr9"]),
-        key=key+"hr9"
-    )
-
-    pdata["barrel"] = col2.number_input(
-        "Barrel %",
-        value=float(pdata["barrel"]),
-        key=key+"barrel"
-    )
-
-    pdata["woba"] = col3.number_input(
-        "Split wOBA Allowed",
-        value=float(pdata["woba"]),
-        key=key+"woba"
-    )
+    pdata["hr9"] = col1.number_input("HR/9",value=float(pdata["hr9"]),key=key+"hr9")
+    pdata["barrel"] = col2.number_input("Barrel %",value=float(pdata["barrel"]),key=key+"barrel")
+    pdata["woba"] = col3.number_input("Split wOBA",value=float(pdata["woba"]),key=key+"woba")
 
     pdata["iso"] = col1.number_input(
         f"Lineup ISO vs {'RHP' if pdata['hand']=='R' else 'LHP'}",
@@ -146,49 +130,42 @@ if data["dates"]:
         key=key+"iso"
     )
 
-    pdata["park"] = col2.number_input(
-        "Ballpark HR Factor",
-        value=float(pdata["park"]),
-        key=key+"park"
-    )
+    pdata["park"] = col2.number_input("Ballpark HR Factor",value=float(pdata["park"]),key=key+"park")
 
-    pdata["sharp"] = col3.slider(
-        "Sharp Money Index",
-        0,
-        100,
-        int(pdata["sharp"]),
-        key=key+"sharp"
-    )
+    st.divider()
+    st.subheader("💰 Sharp Money (Action Network / ZCode)")
 
-    # ------------------------------------------------
-    # CALCULO EDGE
-    # ------------------------------------------------
+    tickets = st.slider("% Tickets",0,100,50,key=key+"tickets")
+    money = st.slider("% Money",0,100,50,key=key+"money")
 
+    sharp_index, sharp_signal = sharp_money_index(tickets,money)
+
+    st.info(sharp_signal)
+
+    # EDGE CALCULATION
     hr_score, hit_score, edge_score, label = calculate_edge(
         pdata["hr9"],
         pdata["barrel"],
         pdata["woba"],
         pdata["iso"],
         pdata["park"],
-        pdata["sharp"]
+        sharp_index
     )
 
     st.divider()
 
-    c1, c2, c3 = st.columns(3)
+    c1,c2,c3 = st.columns(3)
 
-    c1.metric("HR Risk", hr_score)
-    c2.metric("Hit Risk", hit_score)
-    c3.metric("EDGE SCORE", edge_score)
+    c1.metric("HR Risk",hr_score)
+    c2.metric("Hit Risk",hit_score)
+    c3.metric("EDGE SCORE",edge_score)
 
-    if "TOP EDGE" in label:
+    if "ELITE" in label:
         st.error(label)
-    elif "Positivo" in label:
+    elif "TOP" in label:
         st.success(label)
-    elif "Lean" in label:
-        st.warning(label)
     else:
-        st.info(label)
+        st.warning(label)
 
 else:
     st.write("No hay juegos hoy.")
