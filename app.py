@@ -1,61 +1,93 @@
 import streamlit as st
 import requests
 
-st.title("⚾ MLB Pitcher AI")
+st.set_page_config(layout="wide")
 
-schedule_url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+st.title("⚾ MLB Pitcher Vulnerability AI")
 
-data = requests.get(schedule_url).json()
+# -------------------------
+# FUNCION MODELO
+# -------------------------
 
-def get_live_pitcher(gamePk, side):
-    try:
-        url = f"https://statsapi.mlb.com/api/v1/game/{gamePk}/boxscore"
-        box = requests.get(url).json()
+def calculate_scores(hr9, barrel, woba, iso, park, sharp):
 
-        pitchers = box["teams"][side]["pitchers"]
+    hr_risk = (
+        hr9 * 20 +
+        barrel * 1.5 +
+        woba * 100 +
+        iso * 120 +
+        park * 15 +
+        sharp * 0.3
+    )
 
-        if pitchers:
-            pitcher_id = pitchers[0]
-            return box["teams"][side]["players"][f"ID{pitcher_id}"]["person"]["fullName"]
+    hit_risk = (
+        woba * 150 +
+        iso * 100 +
+        barrel * 1.2 +
+        sharp * 0.4
+    )
 
-    except:
-        pass
+    if hr_risk > 70:
+        label = "🔥 Pitcher Vulnerable"
+    elif hr_risk > 55:
+        label = "⚠️ Riesgo Medio"
+    else:
+        label = "✅ Pitcher Estable"
 
-    return "TBD"
+    return round(hr_risk,2), round(hit_risk,2), label
 
+
+# -------------------------
+# OBTENER JUEGOS MLB
+# -------------------------
+
+url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+
+data = requests.get(url).json()
 
 if data["dates"]:
 
     games = data["dates"][0]["games"]
 
-    for game in games:
+    game_list = []
 
-        gamePk = game["gamePk"]
+    for g in games:
+        away = g["teams"]["away"]["team"]["name"]
+        home = g["teams"]["home"]["team"]["name"]
 
-        home = game["teams"]["home"]["team"]["name"]
-        away = game["teams"]["away"]["team"]["name"]
+        game_list.append(f"{away} vs {home}")
 
-        status = game["status"]["detailedState"]
+    selected_game = st.selectbox("Selecciona juego", game_list)
 
-        home_pitcher = game["teams"]["home"].get("probablePitcher")
-        away_pitcher = game["teams"]["away"].get("probablePitcher")
+    st.divider()
 
-        # Si el juego ya empezó → buscar pitcher real
-        if status in ["In Progress", "Live", "Final"]:
+    st.subheader("📊 Datos del Pitcher")
 
-            home_name = get_live_pitcher(gamePk, "home")
-            away_name = get_live_pitcher(gamePk, "away")
+    col1, col2, col3 = st.columns(3)
 
-        else:
-            home_name = home_pitcher["fullName"] if home_pitcher else "TBD"
-            away_name = away_pitcher["fullName"] if away_pitcher else "TBD"
+    hr9 = col1.number_input("HR/9", value=1.2)
+    barrel = col2.number_input("Barrel %", value=8.0)
+    woba = col3.number_input("Split wOBA Allowed", value=0.320)
 
-        st.markdown(f"""
-        ### {away} vs {home}
-        🧢 Visitante: **{away_name}**
-        🧢 Local: **{home_name}**
-        📡 Estado: {status}
-        """)
+    iso = col1.number_input("Lineup ISO vs Hand", value=0.170)
+    park = col2.number_input("Ballpark HR Factor", value=1.05)
+    sharp = col3.slider("Sharp Money Index",0,100,50)
+
+    hr_score, hit_score, label = calculate_scores(
+        hr9, barrel, woba, iso, park, sharp
+    )
+
+    st.divider()
+
+    st.metric("HR Risk Score", hr_score)
+    st.metric("Hit Risk Score", hit_score)
+
+    if "Vulnerable" in label:
+        st.error(label)
+    elif "Medio" in label:
+        st.warning(label)
+    else:
+        st.success(label)
 
 else:
     st.write("No hay juegos hoy.")
