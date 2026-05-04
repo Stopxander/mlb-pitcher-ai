@@ -1,21 +1,31 @@
+import streamlit as st
 import requests
-from flask import Flask, jsonify
 
-app = Flask(__name__)
+st.title("⚾ MLB Pitcher AI")
 
-@app.route("/")
-def home():
-    return "MLB Pitcher AI is running"
+st.write("Obteniendo juegos MLB del día...")
 
-@app.route("/data")
-def get_data():
-    url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
 
-    # Obtener datos de la API
-    response = requests.get(url)
-    data = response.json()
+response = requests.get(url)
+data = response.json()
 
-    return jsonify(data)
+# Mostrar juegos
+if data["dates"]:
+    games = data["dates"][0]["games"]
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    for game in games:
+        home = game["teams"]["home"]["team"]["name"]
+        away = game["teams"]["away"]["team"]["name"]
+
+        home_pitcher = game["teams"]["home"].get("probablePitcher", {}).get("fullName", "TBD")
+        away_pitcher = game["teams"]["away"].get("probablePitcher", {}).get("fullName", "TBD")
+
+        st.write(f"""
+        ### {away} vs {home}
+        🧢 Pitcher visitante: {away_pitcher}  
+        🧢 Pitcher local: {home_pitcher}
+        """)
+
+else:
+    st.write("No hay juegos hoy.")
