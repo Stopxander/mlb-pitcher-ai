@@ -2,14 +2,14 @@ import streamlit as st
 import requests
 from datetime import date
 
-st.set_page_config(page_title="MLB AUTO SHARP SCANNER", layout="wide")
+st.set_page_config(page_title="MLB PROP AI", layout="wide")
 
-st.title("⚾ MLB AUTO SHARP SCANNER")
+st.title("⚾ MLB PLAYER PROP AI ENGINE")
 
-TODAY = date.today().strftime("%Y-%m-%d")
+TODAY=date.today().strftime("%Y-%m-%d")
 
 # ======================
-# GET MLB GAMES
+# GET GAMES
 # ======================
 
 def get_games():
@@ -60,14 +60,16 @@ def pitcher_stats(pid):
             "hr9":float(s.get("homeRunsPer9",1.2)),
             "whip":float(s.get("whip",1.30)),
             "era":float(s.get("era",4.00)),
-            "avg":float(s.get("avg",.250))
+            "avg":float(s.get("avg",.250)),
+            "hand":s.get("pitchHand",{}).get("code","R")
         }
+
     except:
         return None
 
 
 # ======================
-# VULNERABILITY MODEL
+# MODELS
 # ======================
 
 def vulnerability(stats):
@@ -97,48 +99,51 @@ def classify(score):
 
 
 # ======================
-# SHARP ANALYSIS
+# PROP ENGINE
 # ======================
 
-def sharp_model(tickets,money,open_line,current_line):
+def prop_recommendation(stats,score):
 
-    sharp_edge=money-tickets
-    line_move=current_line-open_line
+    props=[]
 
-    signals=[]
+    if score>90:
+        props.append("HR Props")
+        props.append("Total Bases Over")
 
-    if sharp_edge>15:
-        signals.append("Sharp Money")
+    if stats["hr9"]>1.4:
+        props.append("Power Hitters")
 
-    if sharp_edge>0 and line_move<0:
-        signals.append("Reverse Line Movement")
+    if stats["whip"]>1.35:
+        props.append("Hits Props")
 
-    if tickets<40 and money>60:
-        signals.append("Contrarian Play")
+    if stats["hand"]=="R":
+        props.append("Target LEFT handed batters")
 
-    return sharp_edge,line_move,signals
+    else:
+        props.append("Target RIGHT handed batters")
 
-
-# ======================
-# BET ENGINE
-# ======================
-
-def bet_signal(vuln,signals):
-
-    if vuln>90 and "Sharp Money" in signals:
-        return "💰 SYNDICATE PLAY"
-
-    if vuln>80:
-        return "🎯 HR / HITS PROPS"
-
-    if "Reverse Line Movement" in signals:
-        return "📈 Follow Sharp Side"
-
-    return "No Edge"
+    return props
 
 
 # ======================
-# MAIN APP
+# SHARP MODEL
+# ======================
+
+def sharp_model(tickets,money):
+
+    edge=money-tickets
+
+    if edge>15:
+        return "💰 Sharp Money"
+
+    if edge>5:
+        return "📈 Slight Sharp Edge"
+
+    return "Public Game"
+
+
+# ======================
+# MAIN
 # ======================
 
 games=get_games()
@@ -154,20 +159,14 @@ for g in games:
     st.markdown("---")
     st.header(g["game"])
 
-    st.subheader("📊 Market Data (Action Network / ZCode)")
-
-    col1,col2,col3,col4=st.columns(4)
+    col1,col2=st.columns(2)
 
     tickets=col1.slider("% Tickets",0,100,50,key=g["game"]+"t")
     money=col2.slider("% Money",0,100,50,key=g["game"]+"m")
-    open_line=col3.number_input("Opening Line",value=-110,key=g["game"]+"o")
-    current_line=col4.number_input("Current Line",value=-110,key=g["game"]+"c")
 
-    sharp_edge,line_move,signals=sharp_model(
-        tickets,money,open_line,current_line
-    )
+    sharp_signal=sharp_model(tickets,money)
 
-    st.write("Signals:",signals if signals else "None")
+    st.write("Market Signal:",sharp_signal)
 
     cols=st.columns(2)
 
@@ -183,7 +182,7 @@ for g in games:
         with col:
 
             if not name:
-                st.write(f"{side}: TBD")
+                st.write("TBD")
                 continue
 
             st.subheader(name)
@@ -194,24 +193,27 @@ for g in games:
                 st.warning("No stats")
                 continue
 
-            vuln=vulnerability(stats)
-            status=classify(vuln)
+            score=vulnerability(stats)
+            status=classify(score)
 
-            signal=bet_signal(vuln,signals)
-
-            st.metric("Vulnerability",vuln)
+            st.metric("Vulnerability",score)
             st.markdown(status)
-            st.success(signal)
 
-            if signal!="No Edge":
-                top.append((g["game"],name,signal))
+            props=prop_recommendation(stats,score)
+
+            st.write("🎯 PROP TARGETS")
+            for pr in props:
+                st.write("•",pr)
+
+            if score>85:
+                top.append((g["game"],name,props))
 
 
 st.markdown("---")
-st.header("⭐ AUTO SYNDICATE PLAYS")
+st.header("⭐ TOP PLAYER PROP SPOTS")
 
 if not top:
-    st.write("No strong edges today")
+    st.write("No elite prop spots")
 
 for t in top:
-    st.write(f"{t[0]} — {t[1]} → {t[2]}")
+    st.write(f"{t[0]} — Attack {t[1]} → {', '.join(t[2])}")
