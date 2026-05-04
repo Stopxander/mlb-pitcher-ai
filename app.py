@@ -1,26 +1,26 @@
 import streamlit as st
 import requests
+from datetime import date
 
-st.set_page_config(page_title="MLB Pitcher AI PRO", layout="wide")
+st.set_page_config(page_title="MLB Sharp Syndicate AI", layout="wide")
 
-st.title("⚾ MLB Pitcher Vulnerability AI PRO")
+st.title("⚾ MLB SHARP SYNDICATE AI")
 
-TODAY = "2024-06-01"
+TODAY = date.today().strftime("%Y-%m-%d")
 
 SCHEDULE_URL = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={TODAY}"
 
-# ======================
-# GET GAMES
-# ======================
-
+# =============================
+# GET TODAY GAMES
+# =============================
 def get_games():
 
     data = requests.get(SCHEDULE_URL).json()
 
-    games = []
-
     if not data["dates"]:
         return []
+
+    games = []
 
     for g in data["dates"][0]["games"]:
 
@@ -40,10 +40,10 @@ def get_games():
 
     return games
 
-# ======================
-# GET PITCHER STATS
-# ======================
 
+# =============================
+# PITCHER STATS
+# =============================
 def get_pitcher_stats(pid):
 
     if not pid:
@@ -62,24 +62,39 @@ def get_pitcher_stats(pid):
             "era": float(s.get("era",4.00)),
             "avg": float(s.get("avg",.250))
         }
-
     except:
         return None
 
-# ======================
-# SCORING ENGINE
-# ======================
 
-def vulnerability_score(stats):
+# =============================
+# SHARP MONEY INPUT
+# =============================
+def sharp_index():
+
+    st.sidebar.header("💰 Sharp Money Input")
+
+    tickets = st.sidebar.slider("% Tickets",0,100,50)
+    money = st.sidebar.slider("% Money",0,100,50)
+
+    edge = money - tickets
+
+    return edge
+
+
+# =============================
+# VULNERABILITY MODEL
+# =============================
+def vulnerability(stats):
 
     score = (
-        stats["hr9"] * 20 +
-        stats["whip"] * 15 +
-        stats["era"] * 5 +
-        stats["avg"] * 400
+        stats["hr9"]*20 +
+        stats["whip"]*15 +
+        stats["era"]*5 +
+        stats["avg"]*400
     )
 
     return round(score,1)
+
 
 def classify(score):
 
@@ -87,7 +102,7 @@ def classify(score):
         return "🔥 ELITE TARGET"
 
     elif score >= 75:
-        return "🔴 Pitcher Vulnerable"
+        return "🔴 Vulnerable"
 
     elif score >= 60:
         return "🟡 Neutral"
@@ -95,15 +110,37 @@ def classify(score):
     else:
         return "🟢 Stable"
 
-# ======================
-# MAIN
-# ======================
+
+# =============================
+# BET SIGNAL ENGINE
+# =============================
+def bet_signal(score, sharp):
+
+    if score > 90 and sharp > 15:
+        return "💰 SYNDICATE PLAY"
+
+    if score > 80 and sharp > 5:
+        return "🎯 VALUE BET"
+
+    if sharp > 20:
+        return "📈 SHARP MONEY ONLY"
+
+    return "No Edge"
+
+
+# =============================
+# MAIN APP
+# =============================
+
+sharp_edge = sharp_index()
 
 games = get_games()
 
 if not games:
     st.warning("No games today")
     st.stop()
+
+top_spots = []
 
 for g in games:
 
@@ -113,8 +150,8 @@ for g in games:
     cols = st.columns(2)
 
     pitchers = [
-        ("Visitante", g["away_pitcher"], g["away_id"]),
-        ("Local", g["home_pitcher"], g["home_id"])
+        ("Away", g["away_pitcher"], g["away_id"]),
+        ("Home", g["home_pitcher"], g["home_id"])
     ]
 
     for col, p in zip(cols, pitchers):
@@ -127,21 +164,35 @@ for g in games:
                 st.write(f"{side}: TBD")
                 continue
 
-            st.subheader(f"{side}: {name}")
+            st.subheader(name)
 
             stats = get_pitcher_stats(pid)
 
             if not stats:
-                st.warning("Stats no disponibles")
+                st.warning("Stats unavailable")
                 continue
 
-            score = vulnerability_score(stats)
+            score = vulnerability(stats)
             status = classify(score)
+            signal = bet_signal(score, sharp_edge)
 
-            st.metric("Vulnerability Score", score)
+            st.metric("Vulnerability", score)
             st.markdown(f"### {status}")
-
             st.write(stats)
+            st.success(signal)
 
-            if score >= 95:
-                st.success("💰 BET TARGET DETECTED")
+            if signal != "No Edge":
+                top_spots.append((g["game"], name, signal))
+
+
+# =============================
+# TOP BET SPOTS
+# =============================
+st.markdown("---")
+st.header("⭐ TOP BET SPOTS TODAY")
+
+if not top_spots:
+    st.write("No strong edges detected")
+
+for t in top_spots:
+    st.write(f"{t[0]} — {t[1]} → {t[2]}")
