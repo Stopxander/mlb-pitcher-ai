@@ -6,7 +6,7 @@ st.title("⚾ MLB Pitcher AI — Daily Board")
 
 @st.cache_data(ttl=3600)
 def get_games():
-url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&hydrate=probablePitcher"
+  url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&hydrate=probablePitcher"
     data = requests.get(url).json()
 
     games = []
