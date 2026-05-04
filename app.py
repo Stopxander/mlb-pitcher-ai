@@ -2,9 +2,9 @@ import streamlit as st
 import requests
 from datetime import date
 
-st.set_page_config(page_title="MLB PROP AI", layout="wide")
+st.set_page_config(page_title="MLB Pitcher AI", layout="wide")
 
-st.title("⚾ MLB PLAYER PROP AI ENGINE")
+st.title("⚾ MLB Pitcher AI — WORKING VERSION")
 
 TODAY=date.today().strftime("%Y-%m-%d")
 
@@ -24,21 +24,54 @@ def get_games():
 
     for g in data["dates"][0]["games"]:
 
+        gamePk=g["gamePk"]
+
         away=g["teams"]["away"]["team"]["name"]
         home=g["teams"]["home"]["team"]["name"]
 
-        away_p=g["teams"]["away"].get("probablePitcher",{})
-        home_p=g["teams"]["home"].get("probablePitcher",{})
-
         games.append({
             "game":f"{away} @ {home}",
-            "away_pitcher":away_p.get("fullName"),
-            "away_id":away_p.get("id"),
-            "home_pitcher":home_p.get("fullName"),
-            "home_id":home_p.get("id")
+            "gamePk":gamePk
         })
 
     return games
+
+
+# ======================
+# GET STARTING PITCHERS
+# ======================
+
+def get_starting_pitchers(gamePk):
+
+    url=f"https://statsapi.mlb.com/api/v1.1/game/{gamePk}/feed/live"
+    data=requests.get(url).json()
+
+    try:
+        box=data["liveData"]["boxscore"]["teams"]
+
+        away_pitcher=None
+        home_pitcher=None
+
+        # AWAY
+        for pid in box["away"]["pitchers"]:
+            player=box["away"]["players"][f"ID{pid}"]
+            if player["stats"]["pitching"]["gamesStarted"]==1:
+                away_pitcher=player["person"]["fullName"]
+                away_id=player["person"]["id"]
+                break
+
+        # HOME
+        for pid in box["home"]["pitchers"]:
+            player=box["home"]["players"][f"ID{pid}"]
+            if player["stats"]["pitching"]["gamesStarted"]==1:
+                home_pitcher=player["person"]["fullName"]
+                home_id=player["person"]["id"]
+                break
+
+        return away_pitcher,away_id,home_pitcher,home_id
+
+    except:
+        return None,None,None,None
 
 
 # ======================
@@ -60,8 +93,7 @@ def pitcher_stats(pid):
             "hr9":float(s.get("homeRunsPer9",1.2)),
             "whip":float(s.get("whip",1.30)),
             "era":float(s.get("era",4.00)),
-            "avg":float(s.get("avg",.250)),
-            "hand":s.get("pitchHand",{}).get("code","R")
+            "avg":float(s.get("avg",.250))
         }
 
     except:
@@ -69,7 +101,7 @@ def pitcher_stats(pid):
 
 
 # ======================
-# MODELS
+# MODEL
 # ======================
 
 def vulnerability(stats):
@@ -86,60 +118,13 @@ def vulnerability(stats):
 
 def classify(score):
 
-    if score>=95:
-        return "🔥 ELITE TARGET"
+    if score>=90:
+        return "🔥 TARGET"
 
-    elif score>=75:
+    if score>=70:
         return "🔴 Vulnerable"
 
-    elif score>=60:
-        return "🟡 Neutral"
-
     return "🟢 Stable"
-
-
-# ======================
-# PROP ENGINE
-# ======================
-
-def prop_recommendation(stats,score):
-
-    props=[]
-
-    if score>90:
-        props.append("HR Props")
-        props.append("Total Bases Over")
-
-    if stats["hr9"]>1.4:
-        props.append("Power Hitters")
-
-    if stats["whip"]>1.35:
-        props.append("Hits Props")
-
-    if stats["hand"]=="R":
-        props.append("Target LEFT handed batters")
-
-    else:
-        props.append("Target RIGHT handed batters")
-
-    return props
-
-
-# ======================
-# SHARP MODEL
-# ======================
-
-def sharp_model(tickets,money):
-
-    edge=money-tickets
-
-    if edge>15:
-        return "💰 Sharp Money"
-
-    if edge>5:
-        return "📈 Slight Sharp Edge"
-
-    return "Public Game"
 
 
 # ======================
@@ -152,27 +137,18 @@ if not games:
     st.warning("No games today")
     st.stop()
 
-top=[]
-
 for g in games:
 
     st.markdown("---")
     st.header(g["game"])
 
-    col1,col2=st.columns(2)
-
-    tickets=col1.slider("% Tickets",0,100,50,key=g["game"]+"t")
-    money=col2.slider("% Money",0,100,50,key=g["game"]+"m")
-
-    sharp_signal=sharp_model(tickets,money)
-
-    st.write("Market Signal:",sharp_signal)
+    away_p,away_id,home_p,home_id=get_starting_pitchers(g["gamePk"])
 
     cols=st.columns(2)
 
     pitchers=[
-        ("Away",g["away_pitcher"],g["away_id"]),
-        ("Home",g["home_pitcher"],g["home_id"])
+        ("Away",away_p,away_id),
+        ("Home",home_p,home_id)
     ]
 
     for col,p in zip(cols,pitchers):
@@ -182,7 +158,7 @@ for g in games:
         with col:
 
             if not name:
-                st.write("TBD")
+                st.write("Esperando abridor...")
                 continue
 
             st.subheader(name)
@@ -198,22 +174,4 @@ for g in games:
 
             st.metric("Vulnerability",score)
             st.markdown(status)
-
-            props=prop_recommendation(stats,score)
-
-            st.write("🎯 PROP TARGETS")
-            for pr in props:
-                st.write("•",pr)
-
-            if score>85:
-                top.append((g["game"],name,props))
-
-
-st.markdown("---")
-st.header("⭐ TOP PLAYER PROP SPOTS")
-
-if not top:
-    st.write("No elite prop spots")
-
-for t in top:
-    st.write(f"{t[0]} — Attack {t[1]} → {', '.join(t[2])}")
+            st.write(stats)
