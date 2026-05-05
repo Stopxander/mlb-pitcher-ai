@@ -1,221 +1,141 @@
 import streamlit as st
 import requests
-import random
+from datetime import date
 
-st.set_page_config(page_title="MLB Pitcher AI", layout="wide")
+st.set_page_config(layout="wide")
 
-st.title("⚾ MLB Pitcher Vulnerability AI")
-
-# =============================
-# ESPN GAMES
-# =============================
-
+# ===============================
+# GET MLB GAMES (ESPN API)
+# ===============================
+@st.cache_data(ttl=600)
 def get_games():
 
-    url = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
+    today = date.today().strftime("%Y%m%d")
 
-    try:
-        data = requests.get(url).json()
-    except:
-        st.error("Error conectando con ESPN")
-        return []
+    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today}"
+
+    data = requests.get(url).json()
 
     games = []
 
-    for event in data.get("events", []):
+    for event in data["events"]:
 
         comp = event["competitions"][0]
-        teams = comp["competitors"]
 
-        home = next(t for t in teams if t["homeAway"]=="home")
-        away = next(t for t in teams if t["homeAway"]=="away")
+        home = comp["competitors"][0]["team"]["displayName"]
+        away = comp["competitors"][1]["team"]["displayName"]
 
-        def pitcher(team):
-            try:
-                return team["probables"][0]["athlete"]["displayName"]
-            except:
-                return "TBD"
+        home_pitcher = comp["competitors"][0].get(
+            "probables", [{}]
+        )[0].get("athlete", {}).get("displayName", "TBD")
+
+        away_pitcher = comp["competitors"][1].get(
+            "probables", [{}]
+        )[0].get("athlete", {}).get("displayName", "TBD")
 
         games.append({
-            "game": f'{away["team"]["displayName"]} vs {home["team"]["displayName"]}',
-            "home_pitcher": pitcher(home),
-            "away_pitcher": pitcher(away)
+            "game": f"{away} vs {home}",
+            "home_pitcher": home_pitcher,
+            "away_pitcher": away_pitcher
         })
 
     return games
 
 
-games = get_games()
+# ===============================
+# FAKE SMART STAT GENERATOR
+# (temporary until live stat API)
+# ===============================
+def generate_pitcher_stats(name):
 
-if not games:
-    st.stop()
-
-# =============================
-# SELECT GAME
-# =============================
-
-game_names = [g["game"] for g in games]
-
-selected = st.selectbox("Selecciona Juego", game_names)
-
-game = next(g for g in games if g["game"] == selected)
-
-st.subheader(selected)
-
-# =============================
-# AUTO SHARP INDEX
-# =============================
-
-def get_sharp_index():
-
-    public_pct = random.randint(45,75)
-    line_move = random.uniform(-1.5,1.5)
-
-    sharp = 50
-
-    if public_pct > 60 and line_move < 0:
-        sharp += 25
-    elif public_pct < 40 and line_move > 0:
-        sharp += 20
-
-    sharp += abs(line_move)*10
-
-    return min(int(sharp),100)
-
-# =============================
-# PITCHER INPUTS
-# =============================
-
-def pitcher_panel(name):
-
-    st.markdown(f"### {name}")
-
-    col1,col2,col3 = st.columns(3)
-
-    hr9 = col1.number_input("HR/9",0.0,3.0,1.2,key=name+"hr9")
-    barrel = col1.number_input("Barrel %",0.0,20.0,9.0,key=name+"barrel")
-
-    fb = col2.number_input("Flyball %",0.0,70.0,38.0,key=name+"fb")
-    woba = col2.number_input("Split wOBA",0.200,0.500,0.330,key=name+"woba")
-
-    iso = col3.number_input("Lineup ISO",0.050,0.400,0.170,key=name+"iso")
-    park = col3.number_input("Ballpark HR Factor",0.5,2.0,1.05,key=name+"park")
-
-    sharp = get_sharp_index()
-
-    st.write(f"💰 Auto Sharp Index: {sharp}")
+    seed = sum(ord(c) for c in name)
 
     return {
-        "hr9":hr9,
-        "barrel":barrel,
-        "fb":fb,
-        "woba":woba,
-        "iso":iso,
-        "park":park,
-        "sharp":sharp
+        "hr9": round(0.8 + (seed % 80)/100,2),
+        "barrel": round(5 + (seed % 10),1),
+        "flyball": round(30 + (seed % 20),1),
+        "woba": round(.280 + (seed % 60)/1000,3),
+        "lineup_iso": round(.140 + (seed % 60)/1000,3),
+        "park_factor": round(0.9 + (seed % 30)/100,2),
+        "sharp_index": 40 + (seed % 60)
     }
 
 
-home_data = pitcher_panel(game["home_pitcher"])
-away_data = pitcher_panel(game["away_pitcher"])
-
-# =============================
-# RISK MODEL
-# =============================
-
-def risk_score(d):
+# ===============================
+# VULNERABILITY MODEL
+# ===============================
+def vulnerability(stats):
 
     score = (
-        d["hr9"]*25 +
-        d["barrel"]*2 +
-        d["fb"]*0.6 +
-        (d["woba"]-0.300)*200 +
-        d["iso"]*120 +
-        d["park"]*15 +
-        d["sharp"]*0.3
+        stats["hr9"]*25 +
+        stats["barrel"]*2 +
+        stats["flyball"]*1.2 +
+        stats["woba"]*150 +
+        stats["lineup_iso"]*200 +
+        stats["park_factor"]*20 +
+        stats["sharp_index"]*0.4
     )
 
     return round(score,1)
 
 
-def classify(score):
+def label(score):
 
-    if score >= 95:
-        return "🔥 Elite Target"
-    elif score >= 75:
-        return "🔴 Vulnerable"
-    elif score >= 60:
-        return "🟡 Neutral"
+    if score > 140:
+        return "🔥 ELITE TARGET (Attack Over / Batter Props)"
+    elif score > 120:
+        return "⚠️ Vulnerable"
+    elif score > 100:
+        return "Neutral"
     else:
-        return "🟢 Stable"
+        return "🧊 Stable Pitcher"
 
 
-home_score = risk_score(home_data)
-away_score = risk_score(away_data)
+# ===============================
+# UI
+# ===============================
+st.title("⚾ MLB Pitcher Vulnerability AI")
 
-home_class = classify(home_score)
-away_class = classify(away_score)
+games = get_games()
 
-# =============================
-# RESULTS
-# =============================
+if not games:
+    st.warning("No games today")
+    st.stop()
 
-st.divider()
+selected = st.selectbox(
+    "Select Game",
+    [g["game"] for g in games]
+)
 
-c1,c2 = st.columns(2)
+game = next(g for g in games if g["game"] == selected)
 
-c1.metric(game["home_pitcher"], home_score)
-c1.write(home_class)
+col1, col2 = st.columns(2)
 
-c2.metric(game["away_pitcher"], away_score)
-c2.write(away_class)
+for col, pname, side in [
+    (col1, game["away_pitcher"], "Away"),
+    (col2, game["home_pitcher"], "Home"),
+]:
 
-# =============================
-# GAME ENVIRONMENT
-# =============================
+    with col:
 
-elite_count = sum([
-    "Elite" in home_class,
-    "Elite" in away_class
-])
+        st.subheader(f"{side} Pitcher")
+        st.markdown(f"### {pname}")
 
-if elite_count == 2:
-    env = "🔥 OFFENSIVE GAME"
-elif elite_count == 1:
-    env = "⚠️ TARGETABLE MATCHUP"
-else:
-    env = "🧊 LOW SCORING"
+        if pname == "TBD":
+            st.warning("Waiting for confirmed pitcher")
+            continue
 
-st.subheader("Game Environment")
-st.write(env)
+        stats = generate_pitcher_stats(pname)
 
-# =============================
-# AUTO BET ENGINE
-# =============================
+        score = vulnerability(stats)
 
-st.subheader("⭐ Recommended Plays")
+        st.metric("HR/9", stats["hr9"])
+        st.metric("Barrel %", stats["barrel"])
+        st.metric("Flyball %", stats["flyball"])
+        st.metric("Split wOBA", stats["woba"])
+        st.metric("Lineup ISO", stats["lineup_iso"])
+        st.metric("Ballpark Factor", stats["park_factor"])
+        st.metric("Sharp Money Index", stats["sharp_index"])
 
-plays = []
-
-if elite_count == 2:
-    plays += [
-        "✅ OVER LEAN",
-        "✅ YRFI SIGNAL",
-        "✅ Both Team Totals"
-    ]
-
-if "Elite" in home_class or "Elite" in away_class:
-    plays += [
-        "🎯 Fade Vulnerable Pitcher",
-        "💥 HR Prop Spot",
-        "⚾ Hits / Total Bases Props"
-    ]
-
-if home_data["sharp"] > 65 or away_data["sharp"] > 65:
-    plays.append("💰 Sharp Money Confirmation")
-
-if not plays:
-    plays.append("No Edge Detected")
-
-for p in plays:
-    st.write(p)
+        st.success(label(score))
+        st.metric("Vulnerability Score", score)
