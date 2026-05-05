@@ -1,163 +1,60 @@
 import streamlit as st
 import requests
+import pandas as pd
 
-st.set_page_config(page_title="MLB Pitcher Vulnerability AI", layout="wide")
+st.set_page_config(page_title="MLB Pitcher AI", layout="wide")
 
 st.title("⚾ MLB Pitcher Vulnerability AI")
 
-# ======================
-# ESPN GAMES + PITCHERS
-# ======================
+# ===============================
+# ESPN SCOREBOARD API
+# ===============================
 
 def get_games():
 
-    url="https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
-    data=requests.get(url).json()
+    url = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
 
-    games=[]
+    data = requests.get(url).json()
+
+    games = []
 
     for event in data["events"]:
 
-        comp=event["competitions"][0]
-        teams=comp["competitors"]
+        comp = event["competitions"][0]
 
-        away=teams[1]
-        home=teams[0]
+        home = comp["competitors"][0]
+        away = comp["competitors"][1]
 
-        def get_pitcher(team):
-            try:
-                p=team["probables"][0]
-                return p["athlete"]["displayName"]
-            except:
-                return None
+        home_pitcher = home.get("probables", [{}])
+        away_pitcher = away.get("probables", [{}])
 
         games.append({
-            "game":f'{away["team"]["displayName"]} @ {home["team"]["displayName"]}',
-            "away_pitcher":get_pitcher(away),
-            "home_pitcher":get_pitcher(home)
+            "game": f'{away["team"]["displayName"]} vs {home["team"]["displayName"]}',
+            "home_team": home["team"]["displayName"],
+            "away_team": away["team"]["displayName"],
+            "home_pitcher": home_pitcher[0].get("athlete", {}).get("displayName","TBD"),
+            "away_pitcher": away_pitcher[0].get("athlete", {}).get("displayName","TBD"),
         })
 
     return games
 
 
-# ======================
-# FIND PLAYER ID (MLB)
-# ======================
+games = get_games()
 
-def get_player_id(name):
+game_names = [g["game"] for g in games]
 
-    if not name:
-        return None
+selected_game = st.selectbox("Selecciona Juego", game_names)
 
-    url=f"https://statsapi.mlb.com/api/v1/people/search?names={name}"
-    r=requests.get(url).json()
+game = next(g for g in games if g["game"] == selected_game)
 
-    try:
-        return r["people"][0]["id"]
-    except:
-        return None
+st.subheader(selected_game)
 
+# ===============================
+# INPUTS
+# ===============================
 
-# ======================
-# GET PITCHER STATS
-# ======================
+def pitcher_inputs(name):
 
-def pitcher_stats(pid):
+    st.markdown(f"### {name}")
 
-    if not pid:
-        return None
-
-    url=f"https://statsapi.mlb.com/api/v1/people/{pid}/stats?stats=season&group=pitching"
-    r=requests.get(url).json()
-
-    try:
-        s=r["stats"][0]["splits"][0]["stat"]
-
-        return {
-            "hr9":float(s.get("homeRunsPer9",1.2)),
-            "whip":float(s.get("whip",1.30)),
-            "era":float(s.get("era",4.00)),
-            "avg":float(s.get("avg",.250))
-        }
-    except:
-        return None
-
-
-# ======================
-# VULNERABILITY MODEL
-# ======================
-
-def vulnerability(stats):
-
-    score=(
-        stats["hr9"]*22 +
-        stats["whip"]*18 +
-        stats["era"]*6 +
-        stats["avg"]*400
-    )
-
-    return round(score,1)
-
-
-def classify(score):
-
-    if score>=95:
-        return "🔥 ELITE TARGET"
-
-    if score>=75:
-        return "🔴 Pitcher Vulnerable"
-
-    if score>=60:
-        return "🟡 Neutral"
-
-    return "🟢 Stable"
-
-
-# ======================
-# DISPLAY
-# ======================
-
-games=get_games()
-
-if not games:
-    st.warning("No games found")
-    st.stop()
-
-for g in games:
-
-    st.markdown("---")
-    st.header(g["game"])
-
-    cols=st.columns(2)
-
-    pitchers=[
-        ("Away",g["away_pitcher"]),
-        ("Home",g["home_pitcher"])
-    ]
-
-    for col,p in zip(cols,pitchers):
-
-        side,name=p
-
-        with col:
-
-            if not name:
-                st.write("TBD")
-                continue
-
-            st.subheader(name)
-
-            pid=get_player_id(name)
-            stats=pitcher_stats(pid)
-
-            if not stats:
-                st.warning("Stats unavailable")
-                continue
-
-            score=vulnerability(stats)
-            status=classify(score)
-
-            st.metric("Vulnerability Score",score)
-            st.markdown(f"### {status}")
-
-            st.write(stats)
+    col
